@@ -2239,7 +2239,7 @@ function wordpress_import_curl_redir_url($ch) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
     curl_setopt($ch, CURLOPT_NOBODY, TRUE);
     $header = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $http_code = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
   if ($http_code == 301 || $http_code == 302) {
       $matches = array();
       preg_match('/Location:(.*?)\n/', $header, $matches);
