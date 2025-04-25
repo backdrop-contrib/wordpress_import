@@ -1152,7 +1152,7 @@ function wordpress_import_process_blog($wordpress_import, &$context) {
  * Import categories and tags as taxonomy terms
  */
 function wordpress_import_process_categories_tags(&$wordpress_import, &$context) {
-  if (!empty($wordpress_import->data['categories'])) {
+  if (!empty($wordpress_import->data['categories']) && !empty($wordpress_import->options['nodetype_post_tm']['category_vocabulary'])) {
     $wordpress_import->categories_vocabulary = $wordpress_import->options['nodetype_post_tm']['category_vocabulary'];
     $wordpress_import->categories_map = wordpress_import_get_terms($wordpress_import->options['nodetype_post_tm']['category_vocabulary']);
     foreach ($wordpress_import->data['categories'] as $category) {
@@ -1161,7 +1161,7 @@ function wordpress_import_process_categories_tags(&$wordpress_import, &$context)
         $term = new TaxonomyTerm();
         $term->name = $category;
         $term->description = '';
-        $term->vocabulary = $wordpress_import->options['nodetype_post_tm']['category_vocabulary'];
+        $term->vocabulary = $wordpress_import->categories_vocabulary;
         $term->parent = 0;
 
         if (!empty($category['category_parent']) && !empty($wordpress_import->categories_map[$category['category_parent']])) {
@@ -1175,7 +1175,7 @@ function wordpress_import_process_categories_tags(&$wordpress_import, &$context)
           ->fields(array(
             'tid' => $term->tid,
             'parent' => $term->parent,
-            ))
+          ))
           ->execute();
 
         $wordpress_import->categories_map[$category] = $term->tid;
@@ -1185,13 +1185,10 @@ function wordpress_import_process_categories_tags(&$wordpress_import, &$context)
     }
   }
 
-  if (!empty($wordpress_import->data['tags'])) {
-
+  if (!empty($wordpress_import->data['tags']) && !empty($wordpress_import->options['nodetype_post_tm']['tag_vocabulary'])) {
     $wordpress_import->tags_vocabulary = $wordpress_import->options['nodetype_post_tm']['tag_vocabulary'];
     $wordpress_import->tags_map = wordpress_import_get_terms($wordpress_import->options['nodetype_post_tm']['tag_vocabulary']);
-
     foreach ($wordpress_import->data['tags'] as $tag => $description) {
-
       // Create term if it doesn't exist.
       if (empty($wordpress_import->tags_map[$tag])) {
         $term = new TaxonomyTerm();
@@ -1208,9 +1205,8 @@ function wordpress_import_process_categories_tags(&$wordpress_import, &$context)
           ->fields(array(
             'tid' => $term->tid,
             'parent' => '0',
-            ))
+          ))
           ->execute();
-
 
         $wordpress_import->tags_map[$tag] = $term->tid;
 
