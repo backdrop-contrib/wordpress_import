@@ -365,28 +365,28 @@ function wordpress_import_form_options($form, &$form_state) {
     '#type' => 'select',
     '#title' => t('Import posts in content type'),
     '#description' => t('All imported posts will be assigned the selected content type.'),
-    '#default_value' => '',
+    '#default_value' => isset($content_types['post']) ? 'post' : '',
     '#options' => $content_types,
   );
   $form['basic_options']['nodetype_post_format'] = array(
     '#type' => 'select',
     '#title' => t('Import posts in text format'),
     '#description' => t('All imported posts will be imported with the selected text format.'),
-    '#default_value' => '',
+    '#default_value' => filter_default_format(),
     '#options' => $content_formats,
   );
   $form['basic_options']['nodetype_page'] = array(
     '#type' => 'select',
     '#title' => t('Import pages in content type'),
     '#description' => t('All imported pages will be assigned the selected content type.'),
-    '#default_value' => '',
+    '#default_value' => isset($content_types['page']) ? 'page' : '',
     '#options' => $content_types,
   );
   $form['basic_options']['nodetype_page_format'] = array(
     '#type' => 'select',
     '#title' => t('Import pages in text format'),
     '#description' => t('All imported pages will be imported with the selected text format.'),
-    '#default_value' => '',
+    '#default_value' => filter_default_format(),
     '#options' => $content_formats,
   );
 
@@ -394,7 +394,7 @@ function wordpress_import_form_options($form, &$form_state) {
     '#type' => 'select',
     '#title' => t('Comments text format'),
     '#description' => t('Select the input format to use for imported comments.'),
-    '#default_value' => '',
+    '#default_value' => filter_default_format(),
     '#options' => $content_formats,
   );
 
@@ -411,6 +411,14 @@ function wordpress_import_form_options($form, &$form_state) {
     '#description' => t('Select, in what menu the items should be created.'),
     '#default_value' => '',
     '#options' => $available_menus,
+    '#states' => array(
+      'visible' => array(
+        ':input[name="basic_options[create_menu_items_page]"]' => array('checked' => TRUE),
+      ),
+      'required' => array(
+        ':input[name="basic_options[create_menu_items_page]"]' => array('checked' => TRUE),
+      ),
+    ),
   );
 
   if (module_exists('locale')) {
@@ -453,6 +461,14 @@ function wordpress_import_form_options($form, &$form_state) {
     '#description' => t('Check this box to disable import of categories and tags'),
   );
 
+  $form['advanced_options']['cleanup_divi'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Clean up Divi shortcodes'),
+    '#default_value' => FALSE,
+    '#disabled' => FALSE,
+    '#description' => t('Check this box to remove Divi shortcodes from the imported content'),
+  );
+
   $form['advanced_options']['disable_comments'] = array(
     '#type' => 'checkbox',
     '#title' => t('Don\'t import comments'),
@@ -485,18 +501,26 @@ function wordpress_import_form_options($form, &$form_state) {
     '#description' => t('Create an redirect of the original WordPress posts and pages URLs. For this to work properly, your Backdrop site root must be the same as the WordPress site (!root) and clean URLs should be activated', array('!root' => $wordpress_import->data['baseurl'])),
   );
 
-  $form['advanced_options']['images'] = array(
+  $form['advanced_options']['transfer_files'] = array(
     '#type' => 'checkbox',
-    '#title' => t('Transfer images'),
+    '#title' => t('Transfer images and files'),
     '#default_value' => FALSE,
-    '#description' => t('Try to download the images referenced in the blog posts locally'),
+    '#description' => t('Try to download the images and files referenced in the blog posts locally'),
   );
 
-  $form['advanced_options']['images_dir'] = array(
+  $form['advanced_options']['files_dir'] = array(
     '#type' => 'textfield',
     '#title' => t('Images directory'),
-    '#default_value' => '/wp_images',
-    '#description' => t('Subdirectory of <strong>@wordpress_import_file_directory_path</strong> in which to place files, must start with /', array('@wordpress_import_file_directory_path' => wordpress_import_file_directory_path())),
+    '#default_value' => 'wp_files',
+    '#description' => t('Subdirectory of <strong>@wordpress_import_file_directory_path</strong>/ in which to place files. No leading or trailing slashes required.', array('@wordpress_import_file_directory_path' => wordpress_import_file_directory_path())),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="advanced_options[transfer_files]"]' => array('checked' => TRUE),
+      ),
+      'required' => array(
+        ':input[name="advanced_options[transfer_files]"]' => array('checked' => TRUE),
+      ),
+    ),
   );
 
   // Warn if some key modules are not found.
@@ -529,9 +553,9 @@ function wordpress_import_form_options($form, &$form_state) {
       $form['advanced_options']['redirect']['#disabled'] = TRUE;
   }
   if (!extension_loaded('curl')) {
-      backdrop_set_message(t('cURL PHP extension not available. Transfer images option disabled.'), 'warning');
-      $form['advanced_options']['images']['#default_value'] = FALSE;
-      $form['advanced_options']['images']['#disabled'] = TRUE;
+      backdrop_set_message(t('cURL PHP extension not available. Transfer of images and files is disabled.'), 'warning');
+      $form['advanced_options']['transfer_files']['#default_value'] = FALSE;
+      $form['advanced_options']['transfer_files']['#disabled'] = TRUE;
   }
 
   return $form;
@@ -565,8 +589,8 @@ function wordpress_import_form_options_validate(&$form, &$form_state) {
     form_set_error('basic_options][nodetype_post_format', t('You must specify a format to import WordPress posts into.'));
   }
   if (empty($form_state['values']['basic_options']['nodetype_page_format'])
-      && $form_state['values']['basic_options']['nodetype_pagr'] != 'noimport') {
-    form_set_error('basic_options][nodetype_page_format', t('You must specify a format to import WordPress posts into.'));
+      && $form_state['values']['basic_options']['nodetype_page'] != 'noimport') {
+    form_set_error('basic_options][nodetype_page_format', t('You must specify a format to import WordPress pages into.'));
   }
 
   if (empty($form_state['values']['basic_options']['usermap_type'])) {
@@ -581,19 +605,19 @@ function wordpress_import_form_options_validate(&$form, &$form_state) {
   }
 
   $dir = '';
-  // Test if images directory is valid.
-  if ($form_state['values']['advanced_options']['images']) {
-    $dir = wordpress_import_file_directory_path() . rtrim($form_state['values']['advanced_options']['images_dir'], '/\\');
+  // Test if files directory is valid.
+  if ($form_state['values']['advanced_options']['transfer_files']) {
+    // Strip off leading or trailing '/' from files_dir.
+    $form_state['values']['advanced_options']['files_dir'] = ltrim($form_state['values']['advanced_options']['files_dir'], '/\\');
+    $form_state['values']['advanced_options']['files_dir'] = rtrim($form_state['values']['advanced_options']['files_dir'], '/\\');
+    $dir = wordpress_import_file_directory_path() . $form_state['values']['advanced_options']['files_dir'];
 
     if (!is_dir($dir)) {
       if (!backdrop_mkdir($dir)) {
-        form_set_error('advanced_options][images_dir', t('Invalid images directory specified.'));
+        form_set_error('advanced_options][files_dir', t('Invalid files directory specified.'));
         $form['advanced_options']['#collapsed'] = FALSE;
       }
     }
-  }
-  elseif (is_dir($dir)) {
-    backdrop_rmdir($dir);
   }
 }
 
@@ -606,7 +630,7 @@ function wordpress_import_form_options_submit(&$form, &$form_state) {
   // Clear messages.
   backdrop_get_messages();
 
-  $form_state['values']['advanced_options']['images_dir'] = wordpress_import_file_directory_path() . rtrim($form_state['values']['advanced_options']['images_dir'], '/\\');
+  $form_state['values']['advanced_options']['files_dir'] = rtrim($form_state['values']['advanced_options']['files_dir'], '/\\');
 
   $options = $form_state['values']['basic_options'] + $form_state['values']['advanced_options'];
   $form_state['wordpress_import_obj']->options = $options;
@@ -990,7 +1014,7 @@ function wordpress_import_form_subtask_cancel(&$form_state) {
  * The callback function when the finish button of the last form step is
  * clicked.
  *
- * @param  array &$form_state
+ * @param array &$form_state
  *   The stored values of the current form step.
  */
 function wordpress_import_form_subtask_finish(&$form_state) {
@@ -998,8 +1022,8 @@ function wordpress_import_form_subtask_finish(&$form_state) {
   wordpress_import_form_clear_page_cache($form_state['cache name']);
 
   // Prepare images directory.
-  if ($wordpress_import->options['images'] && !empty($wordpress_import->options['images_dir'])) {
-    file_prepare_directory($wordpress_import->options['images_dir'], TRUE);
+  if ($wordpress_import->options['transfer_files'] && !empty($wordpress_import->options['files_dir'])) {
+    file_prepare_directory($wordpress_import->options['files_dir'], TRUE);
   }
 
   // Prepare batch operations.
@@ -1039,7 +1063,7 @@ function wordpress_import_process_blog($wordpress_import, &$context) {
     $context['results']['created_nodes'] = 0;
     $context['results']['created_terms'] = 0;
     $context['results']['created_categories'] = 0;
-    $context['results']['downloaded_images'] = array();
+    $context['results']['downloaded_files'] = array();
     $context['results']['error_images'] = array();
     $context['results']['password_protected'] = 0;
     $context['results']['created_comments'] = 0;
@@ -1239,10 +1263,10 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
     'tags' => array(),
     'comments' => array(),
   );
-  $context['sandbox']['downloaded_images'] = array();
+  $context['sandbox']['downloaded_files'] = array();
   $context['sandbox']['error_images'] = array();
 
-  $post = & $context['sandbox']['post'];
+  $post = &$context['sandbox']['post'];
 
   while ($reader->read() && !($reader->name == 'item' && $reader->nodeType == XMLReader::END_ELEMENT)) {
     if ($reader->nodeType == XMLReader::ELEMENT) {
@@ -1395,26 +1419,25 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
   }
 
   // We need the language here.
-  $node_language = (isset($wordpress_import->options['language']) ? $wordpress_import->options['language'] : LANGUAGE_NONE);
-
-  $node->langcode = $node_language;
+  $node->langcode = (isset($wordpress_import->options['language']) ? $wordpress_import->options['language'] : LANGUAGE_NONE);
 
   $format = ($post['type'] == 'post') ? $wordpress_import->options['nodetype_post_format'] : $wordpress_import->options['nodetype_page_format'];
 
-  // Process images for this post and replace URLs.
-  if ($wordpress_import->options['images']) {
-    wordpress_import_process_post_images($post['content'], $wordpress_import->options['images_dir'], $context);
+  // Process images and PDFs for this content item and replace URLs.
+  if ($wordpress_import->options['transfer_files']) {
+    wordpress_import_process_post_files($post['content'], $wordpress_import->options['files_dir'], $context);
   }
 
   // Node content.
-  $node->body[LANGUAGE_NONE][0]['value'] = str_replace('<!--more-->', '<!--break-->', $post['content']);
+  if ($wordpress_import->options['cleanup_divi']) {
+    $post['content'] = preg_replace( '/\[\/?et_pb.*?\]/', '', $post['content']);
+  }
+  $search_and_replaces = _wordpress_import_get_search_and_replaces();
+  $node->body[LANGUAGE_NONE][0]['value'] = str_replace(array_keys($search_and_replaces), array_values($search_and_replaces), $post['content']);
   $node->body[LANGUAGE_NONE][0]['format'] = $format;
   if (!empty($post['excerpt'])) {
     $node->body[LANGUAGE_NONE][0]['summary'] = $post['excerpt'];
   }
-
-  // Node language.
-  $node->language = $node_language;
 
   // Node timestamp.
   $node->created = strtotime($post['date']);
@@ -1467,7 +1490,7 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
     // Switch to Backdrop path.
     $path = array (
       'alias' => $node_path,
-      'langcode' => $node->language,
+      'langcode' => $node->langcode,
       'auto' => FALSE,
     );
 
@@ -1538,8 +1561,8 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
 
     foreach ($post['translations'] as $key => $value) {
       // Process images for this post and replace URLs.
-      if ($wordpress_import->options['images']) {
-        wordpress_import_process_post_images($value['body'], $wordpress_import->options['images_dir'], $context);
+      if ($wordpress_import->options['transfer_files']) {
+        wordpress_import_process_post_files($value['body'], $wordpress_import->options['files_dir'], $context);
       }
 
       $tn = new Node();
@@ -1549,7 +1572,7 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
       $tn->uid = $node->uid;
       $tn->status = $node->status;
       $tn->created = $node->created;
-      $tn->body[LANGUAGE_NONE][0]['value'] = str_replace('<!--more-->', '<!--break-->', $value['body']);
+      $tn->body[LANGUAGE_NONE][0]['value'] = str_replace(array_keys($search_and_replaces), array_values($search_and_replaces), $value['body']);
       $tn->body[LANGUAGE_NONE][0]['format'] = $format;
       $tn->comment = $node->comment;
       $tn->promote = $node->promote;
@@ -1627,10 +1650,10 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
   }
 
   // Update messages infos with nid.
-  if (!empty($context['sandbox']['downloaded_images']) || !empty($context['sandbox']['error_images'])) {
-    foreach ($context['sandbox']['downloaded_images'] as $a) {
+  if (!empty($context['sandbox']['downloaded_files']) || !empty($context['sandbox']['error_images'])) {
+    foreach ($context['sandbox']['downloaded_files'] as $a) {
       $a['nid'] = $node->nid;
-      $context['results']['downloaded_images'][] = $a;
+      $context['results']['downloaded_files'][] = $a;
     }
     foreach ($context['sandbox']['error_images'] as $a) {
       $a['nid'] = $node->nid;
@@ -1647,7 +1670,7 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
   ));
 
   unset($context['sandbox']['post']);
-  unset($context['sandbox']['downloaded_images']);
+  unset($context['sandbox']['downloaded_files']);
   unset($context['sandbox']['error_images']);
 
   // Store the new generated items to tempstore and make it valid for 3 days.
@@ -1796,82 +1819,80 @@ function wordpress_import_process_post_comments($comments, $nid, $wordpress_impo
 }
 
 /**
- * Process node body and download image content
+ * Process node body and download image and PDF content.
  */
-function wordpress_import_process_post_images(&$body, $images_dir, $context) {
-  global $base_path;
+function wordpress_import_process_post_files(&$body, string $files_dir, array &$context) {
+  global $base_root;
 
   // Find image URL in content.
-  preg_match_all('/(img|src)=("|\')[^"\'>]+/i', $body, $media);
-  $imgdata = preg_replace('/(img|src)("|\'|="|=\')(.*)/i', "$3", $media[0]);
+  preg_match_all('/(?:href|src)=("|\')([^"\'>]+)\1/i', $body, $media);
+  if (empty($media[2])) {
+    return;
+  }
 
-  foreach ($imgdata as $imgurl) {
-    $urlinfo = parse_url($imgurl);
-    $imginfo = pathinfo($urlinfo['path']);
-    if (($urlinfo['scheme'] == 'http' || $urlinfo['scheme'] == 'https') && isset($imginfo['extension'])) {
-      if ((strcasecmp($imginfo['extension'], 'jpg') == 0) ||
-        (strcasecmp($imginfo['extension'], 'jpeg') == 0) ||
-        (strcasecmp($imginfo['extension'], 'gif') == 0) ||
-        (strcasecmp($imginfo['extension'], 'png') == 0)) {
+  $old_file_urls = array_unique($media[2]);
+  $valid_file_extensions = array_unique(array_merge(
+    image_get_supported_extensions(),
+    preg_split('/\s+/', trim((string) config_get('system.core', 'file_default_allowed_extensions')))
+  ));
+  $destination = file_default_scheme() . '://' . $files_dir;
+  file_prepare_directory($destination, FILE_CREATE_DIRECTORY | FILE_MODIFY_PERMISSIONS);
 
-        $ch = curl_init($imgurl);
-
-        // Check if cURL object OK.
-        if (!$ch) {
-          $context['sandbox']['error_images'][] = array('oldurl' => $imgurl);
-          continue;
-        }
-
-        // Check if image was already downloaded.
-        foreach ($context['results']['downloaded_images'] as $img) {
-          if (!empty($img['imgurl']) && $img['imgurl'] == $imgurl) {
-            $body = str_replace($imgurl, $img['newurl'], $body);
-            continue 2;
-          }
-        }
-
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-
-        // Obtain new URL in case of redirections.
-        $imgnewurl = wordpress_import_curl_redir_url($ch);
-        curl_close($ch);
-
-        if ($imgnewurl) {
-
-          // Download image if it does not exist.
-          $new_file_name = $images_dir . '/' . $imginfo['basename'];
-          if (!file_exists($new_file_name)) {
-            $imgfile = file_create_filename(urldecode($imginfo['basename']), $images_dir);
-            $imgout = fopen($imgfile, 'wb');
-            $ch = curl_init($imgnewurl);
-            curl_setopt($ch, CURLOPT_HEADER, FALSE);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_FILE, $imgout);
-            curl_exec($ch);
-            curl_close($ch);
-            fclose($imgout);
-          }
-          else {
-            $imgfile = '';
-          }
-
-          $rel_dir = str_replace('.', '', $images_dir);
-
-          $newurl = /* $base_path . */ $rel_dir . '/' . $imginfo['basename'];
-
-          // Replace image URL with new path in post.
-          $body = str_replace($imgurl, $newurl, $body);
-          $context['sandbox']['downloaded_images'][] = array(
-            'oldurl' => $imgurl,
-            'newurl' => $newurl,
-            'file' => $imgfile,
-          );
-        }
-        else {
-          $context['sandbox']['error_images'][] = array('oldurl' => $imgurl);
-        }
-      }
+  foreach ($old_file_urls as $old_file_url) {
+    $urlinfo = parse_url($old_file_url);
+    if (empty($urlinfo['scheme']) || empty($urlinfo['path']) || !in_array(strtolower($urlinfo['scheme']), array('http', 'https'), TRUE)) {
+      continue;
     }
+
+    $imginfo = pathinfo($urlinfo['path']);
+    if (empty($imginfo['extension']) || !in_array(strtolower($imginfo['extension']), $valid_file_extensions, TRUE)) {
+      $context['sandbox']['error_images'][] = array('oldurl' => $old_file_url);
+      continue;
+    }
+
+    // Check if image was already downloaded.
+    if (isset($context['sandbox']['downloaded_files'][$old_file_url])) {
+      $local_file = $context['sandbox']['downloaded_files'][$old_file_url]['file'];
+      $local_file_url = $context['sandbox']['downloaded_files'][$old_file_url]['newurl'];
+    }
+    else {
+      $local_file = system_retrieve_file($old_file_url, $destination, TRUE);
+      if (!$local_file) {
+        continue;
+      }
+
+      $local_file_url = file_create_url($local_file->uri);
+      // Strip off the $base_root from the URL so we aren't storing it in content.
+      if (strpos($local_file_url, $base_root) === 0) {
+        $local_file_url = substr($local_file_url, strlen($base_root));
+      }
+
+      $context['sandbox']['downloaded_files'][$old_file_url] = array(
+        'oldurl' => $old_file_url,
+        'newurl' => $local_file_url,
+        'file' => $local_file,
+      );
+    }
+
+    // Add file usage record for this usage of the file.
+    file_usage_add($local_file, 'wordpress_import', 'node', $context['sandbox']['created_nodes'] + 1);
+
+    // Do some simple replacements to align with Backdrop classes.
+    $search_and_replaces = _wordpress_import_get_search_and_replaces();
+    // Replace image URLs and file HREFs with new path in post.
+    if (strpos($body, $old_file_url) !== FALSE) {
+      $search_and_replaces[$old_file_url] = $local_file_url;
+    }
+    $body = str_replace(array_keys($search_and_replaces), array_values($search_and_replaces), $body);
+
+    // Add data-file-id to matching <a> and <img> tags if not already present.
+    $pattern = '/<(a|img)\b[^>]*?(href|src)=("|\')' . preg_quote($local_file_url, '/') . '\3[^>]*>/i';
+    $body = preg_replace_callback($pattern, function ($match) use ($local_file) {
+      if (stripos($match[0], 'data-file-id=') !== FALSE) {
+        return $match[0];
+      }
+      return rtrim(substr($match[0], 0, -1)) . ' data-file-id="' . $local_file->fid . '">';
+    }, $body);
   }
 }
 
@@ -1902,8 +1923,8 @@ function wordpress_import_batch_finished($success, $results, $operations) {
       '@created_trackbacks' => $results['created_trackbacks'],
     )) . '</li>';
     $msg_results[] = '<li>' . t('@downloaded_images/@total_images images', array(
-      '@downloaded_images' => count($results['downloaded_images']),
-      '@total_images' => count($results['downloaded_images']) + count($results['error_images']),
+      '@downloaded_images' => count($results['downloaded_files']),
+      '@total_images' => count($results['downloaded_files']) + count($results['error_images']),
     )) . '</li>';
 
     backdrop_set_message($message . '<ul>' . join("\n", $msg_results) . '</ul>');
@@ -1914,7 +1935,7 @@ function wordpress_import_batch_finished($success, $results, $operations) {
       foreach ($results['error_images'] as $error_image) {
         $errors .= '<li>' . l($error_image['title'], 'node/' . $error_image['nid']) . "</li>\n";
       }
-      backdrop_set_message(t('Some images could not be transferred for these nodes :') . '<ul>' . $errors . '</ul>', 'warning');
+      backdrop_set_message(t('Some images or files could not be transferred for these nodes :') . '<ul>' . $errors . '</ul>', 'warning');
     }
 
     if ($results['password_protected'] > 0) {
@@ -2291,62 +2312,13 @@ function wordpress_import_rollback_finished($success, $results, $operations) {
   }
 }
 
-
-/**
- * cURL helper function since PHP has disabled redirection support.
- * Taken from http://www.php.net/manual/en/function.curl-setopt.php#71313
- */
-function wordpress_import_curl_redir_url($ch) {
-    static $curl_loops = 0;
-    static $curl_max_loops = 20;
-  if ($curl_loops++ >= $curl_max_loops) {
-      $curl_loops = 0;
-      return FALSE;
-  }
-    curl_setopt($ch, CURLOPT_HEADER, TRUE);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-    curl_setopt($ch, CURLOPT_NOBODY, TRUE);
-    $header = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-  if ($http_code == 301 || $http_code == 302) {
-      $matches = array();
-      preg_match('/Location:(.*?)\n/', $header, $matches);
-      $url = @parse_url(trim(array_pop($matches)));
-    if (!$url) {
-        // Couldn't process the url to redirect to.
-        $curl_loops = 0;
-        return FALSE;
-    }
-      $last_url = parse_url(curl_getinfo($ch, CURLINFO_EFFECTIVE_URL));
-      if (!$url['scheme'])
-          $url['scheme'] = $last_url['scheme'];
-      if (!$url['host'])
-          $url['host'] = $last_url['host'];
-      if (!$url['path'])
-          $url['path'] = $last_url['path'];
-      $new_url = $url['scheme'] . '://' . $url['host'] . $url['path'] . ($url['query'] ? '?' . $url['query'] : '');
-      curl_setopt($ch, CURLOPT_URL, $new_url);
-      return wordpress_import_curl_redir_url($ch);
-  }
-  elseif ($http_code == 200) {
-    $curl_loops = 0;
-    return curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-  }
-  else {
-    $curl_loops = 0;
-    return FALSE;
-  }
-}
-
-
 /**
  * [wordpress_import_file_directory_path description]
  * @return string The public file path.
  */
 function wordpress_import_file_directory_path() {
-  return variable_get('file_public_path', conf_path() . '/files');
+  return config_get('system.core', 'file_public_path');
 }
-
 
 /**
  * Helper function to find duplicate nodes
@@ -2448,4 +2420,18 @@ function wordpress_import_db_clear($id) {
   db_delete('wordpress_import')
     ->condition('iid', ($id), 'IN')
     ->execute();
+}
+
+/**
+ * Helper function to return some basic search and replace values for content.
+ *
+ * @return array An array of search and replace values, keyed by the search
+ *   term, with the replace term as the value.
+ */
+function _wordpress_import_get_search_and_replaces() {
+  return [
+    'alignleft' => 'align-left',
+    'alignright' => 'align-right',
+    '<!--more-->' => '<!--break-->',
+  ];
 }
