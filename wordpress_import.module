@@ -1064,7 +1064,7 @@ function wordpress_import_process_blog($wordpress_import, &$context) {
     $context['results']['created_terms'] = 0;
     $context['results']['created_categories'] = 0;
     $context['results']['downloaded_files'] = array();
-    $context['results']['error_images'] = array();
+    $context['results']['file_errors'] = array();
     $context['results']['password_protected'] = 0;
     $context['results']['created_comments'] = 0;
     $context['results']['created_trackbacks'] = 0;
@@ -1264,7 +1264,7 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
     'comments' => array(),
   );
   $context['sandbox']['downloaded_files'] = array();
-  $context['sandbox']['error_images'] = array();
+  $context['sandbox']['file_errors'] = array();
 
   $post = &$context['sandbox']['post'];
 
@@ -1650,15 +1650,15 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
   }
 
   // Update messages infos with nid.
-  if (!empty($context['sandbox']['downloaded_files']) || !empty($context['sandbox']['error_images'])) {
+  if (!empty($context['sandbox']['downloaded_files']) || !empty($context['sandbox']['file_errors'])) {
     foreach ($context['sandbox']['downloaded_files'] as $a) {
       $a['nid'] = $node->nid;
       $context['results']['downloaded_files'][] = $a;
     }
-    foreach ($context['sandbox']['error_images'] as $a) {
+    foreach ($context['sandbox']['file_errors'] as $a) {
       $a['nid'] = $node->nid;
       $a['title'] = $node->title;
-      $context['results']['error_images'][] = $a;
+      $context['results']['file_errors'][] = $a;
     }
   }
 
@@ -1671,7 +1671,7 @@ function wordpress_import_process_post(&$wordpress_import, &$context) {
 
   unset($context['sandbox']['post']);
   unset($context['sandbox']['downloaded_files']);
-  unset($context['sandbox']['error_images']);
+  unset($context['sandbox']['file_errors']);
 
   // Store the new generated items to tempstore and make it valid for 3 days.
   wordpress_import_db_set($wordpress_import->import_id, $context['results']['created_items']);
@@ -1846,7 +1846,7 @@ function wordpress_import_process_post_files(&$body, string $files_dir, array &$
 
     $imginfo = pathinfo($urlinfo['path']);
     if (empty($imginfo['extension']) || !in_array(strtolower($imginfo['extension']), $valid_file_extensions, TRUE)) {
-      $context['sandbox']['error_images'][] = array('oldurl' => $old_file_url);
+      $context['sandbox']['file_errors'][] = array('oldurl' => $old_file_url);
       continue;
     }
 
@@ -1924,29 +1924,25 @@ function wordpress_import_batch_finished($success, $results, $operations) {
     )) . '</li>';
     $msg_results[] = '<li>' . t('@downloaded_images/@total_images images', array(
       '@downloaded_images' => count($results['downloaded_files']),
-      '@total_images' => count($results['downloaded_files']) + count($results['error_images']),
+      '@total_images' => count($results['downloaded_files']) + count($results['file_errors']),
     )) . '</li>';
 
     backdrop_set_message($message . '<ul>' . join("\n", $msg_results) . '</ul>');
 
-    if (count($results['error_images']) > 0) {
-
-      $errors = '';
-      foreach ($results['error_images'] as $error_image) {
-        $errors .= '<li>' . l($error_image['title'], 'node/' . $error_image['nid']) . "</li>\n";
+    if (count($results['file_errors']) > 0) {
+      $errors = [];
+      foreach ($results['file_errors'] as $file_error) {
+        $errors[$file_error['nid']] = '<li>' . l($file_error['title'], 'node/' . $file_error['nid']) . "</li>";
       }
-      backdrop_set_message(t('Some images or files could not be transferred for these nodes :') . '<ul>' . $errors . '</ul>', 'warning');
+      backdrop_set_message(t('Some images or files could not be transferred for these nodes :') . '<ul>' . implode("\n", $errors) . '</ul>', 'warning');
     }
 
     if ($results['password_protected'] > 0) {
       backdrop_set_message(t('Encountered @password_protected password-protected posts. These were imported as unpublished nodes.', array('@password_protected' => $results['password_protected'])), 'warning');
     }
-
   }
   else {
-
     backdrop_set_message(t('Import failed.'), 'error');
-
   }
 
 }
