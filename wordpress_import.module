@@ -1874,9 +1874,6 @@ function wordpress_import_process_post_files(&$body, string $files_dir, array &$
       );
     }
 
-    // Add file usage record for this usage of the file.
-    file_usage_add($local_file, 'wordpress_import', 'node', $context['sandbox']['created_nodes'] + 1);
-
     // Do some simple replacements to align with Backdrop classes.
     $search_and_replaces = _wordpress_import_get_search_and_replaces();
     // Replace image URLs and file HREFs with new path in post.
